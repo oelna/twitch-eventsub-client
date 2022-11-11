@@ -2,4 +2,6 @@
 
 A websocket-based client for Twitch EventSub (use as OBS browser source)
 
-## Not working as of yet!!
+## Kind of working!
+
+if you fill in a valid client_id, channel name, etc, the app will let you auth with twitch and start receiving eventsub notifications!
