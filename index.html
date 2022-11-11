@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>Twitch Eventsub</title>
+
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		
+		<style>
+			* { box-sizing: border-box; }
+			html {
+				font: 125%/1.25 'KievitOT', system-ui, sans-serif;
+				font-weight: 500;
+				font-style: normal;
+				background-color: lightcoral;
+			}
+
+			html.error {
+				background-color: red;
+			}
+
+			body {
+				margin: 0;
+				min-height: 100vh;
+				border: 2px solid #f0f;
+			}
+
+			#banner {
+				background: white;
+				width: 100%;
+
+				padding: 1rem;
+				opacity: 0;
+				transition: all 0.5s;
+			}
+
+			#banner.show {
+				background: coral;
+				opacity: 1;
+			}
+
+			.log {
+				margin-block: 0.5rem;
+				border-top: 2px solid currentColor;
+			}
+		</style>
+	</head>
+	<body>
+		<div id="banner">
+			
+		</div>
+
+		<script>
+			const log = function (item, level="log") {
+
+				const ele = document.createElement('div');
+				ele.classList.add('log');
+				if (typeof item == 'string') {
+					ele.textContent = item;
+				} else if (item instanceof Error || level == 'error') {
+					ele.textContent = '';
+					ele.textContent += item.message;
+					ele.textContent += item.arguments;
+					ele.textContent += item.type;
+					ele.textContent += item.name;
+					// ele.textContent = JSON.stringify(item, ["message", "arguments", "type", "name"]);
+				} else {
+					ele.textContent = JSON.stringify(item);
+				}
+
+				document.querySelector('body').append(ele);
+
+				console[level](item);
+			}
+
+			log(navigator.userAgent);
+
+			/* CONFIG */
+
+			const channel = 'oelna81'; // the channel to read
+			const channelID = 59039718;
+			const ignoreUsers = ['nightbot', 'streamelements', 'oelnabot'];
+			const hideAfter = 6; // hide messages after X seconds
+
+			const subscriptions = [
+				{ sub: 'channel.follow', channel: channelID },
+				//['channel.subscribe', channelID],
+				//['channel.subscription.message', channelID],
+				//['channel.subscription.gift', channelID],
+				//['channel.cheer', channelID],
+				{ sub: 'channel.channel_points_custom_reward_redemption.add', channel: channelID },
+			];
+
+			log(channelID);
+
+			let clientID = ''; // enter a valid client_id from a twitch dev application
+			let redirectURL = 'http://localhost/your_username/project/eventsub.html'; // a URL that is valid in your app settings at twitch
+			let accessToken = localStorage.getItem('twitch-oauth-access-token') || '';
+			const scope = [
+				'channel:read:subscriptions',
+				'channel:read:redemptions',
+				'bits:read',
+			];
+
+			const auth = function (cid, url, scope) {
+				const twitchURL = 'https://id.twitch.tv/oauth2/authorize';
+				const params = new URLSearchParams({
+					'client_id': cid,
+					'redirect_uri': url,
+					'scope': scope.join(' ').replace(/%20/g, '+'),
+					'response_type': 'token'
+				});
+
+				window.location.href = twitchURL + '?' + params.toString();
+			}
+
+			if (localStorage.getItem('twitch-oauth-client-id') && localStorage.getItem('twitch-oauth-client-id') != clientID) {
+				console.log('client id changed, re-auth!');
+				accessToken = '';
+			}
+
+			log(accessToken.substring(0,8));
+			
+			if (!accessToken) {
+				auth(clientID, redirectURL, scope);
+			}
+
+			// handle auth storage
+			if (document.location.hash && document.location.hash != '') {
+				var parsedHash = new URLSearchParams(window.location.hash.slice(1));
+				if (parsedHash.get('access_token')) {
+					accessToken = parsedHash.get('access_token');
+
+					localStorage.setItem('twitch-oauth-access-token', accessToken);
+					localStorage.setItem('twitch-oauth-client-id', clientID);
+
+					// call API
+					console.log('success', accessToken.substring(0,12) + '…');
+				}
+			} else if (document.location.search && document.location.search != '') {
+				var parsedParams = new URLSearchParams(window.location.search);
+				if (parsedParams.get('error_description')) {
+					console.error(parsedParams.get('error') + ' - ' + parsedParams.get('error_description'));
+					document.documentElement.classlist.add('error');
+				}
+			}
+
+			let eventsub;
+			let session_id;
+			// let config;
+			let eventlog = [];
+			let keepAliveFor;
+			let keepAliveTimeout;
+			let lastKeepAlive;
+
+			const banner = document.querySelector('#banner');
+			const notificationsQueue = [];
+
+			// display notifications
+			const notificationsInterval = setInterval(function () {
+				if (notificationsQueue.length == 0) return;
+
+				const next = notificationsQueue.shift();
+				console.log('next', next);
+				
+				banner.textContent = '';
+				banner.append(next[0]);
+				banner.append(next[1]);
+
+				banner.style.animationDuration = hideAfter + 's';
+				banner.classList.add('show');
+
+				setTimeout(function () {
+					banner.classList.remove('show');
+				}, hideAfter*1000);
+			}, (hideAfter+2)*1000);
+
+			log('init loop');
+
+			/*
+			async function getConfig () {
+				const data = await fetch('./config.json.php');
+
+				if (!data.ok) {
+					const message = `An error has occured: ${response.status}`;
+					throw new Error(message);
+				}
+
+				const config = await data.json();
+				return config;
+			}
+			*/
+
+			const init = function () {
+
+				log(new Date());
+
+				// detect OBS
+				if (window.obsstudio) {
+					log(window.obsstudio);
+				}
+
+				// CONNECT
+				eventsub = new WebSocket(
+					'wss://eventsub-beta.wss.twitch.tv/ws', 
+					'eventsub'
+				);
+
+				eventsub.onopen = function (event) {
+					
+				};
+
+				eventsub.onerror = function(error) {
+					log('websockets error ' + JSON.stringify(error));
+					log(error.message);
+				};
+
+				log(eventsub.readyState);
+
+				eventsub.onmessage = function (event) {
+					// https://dev.twitch.tv/docs/eventsub/websocket-reference
+					const msg = JSON.parse(event.data);
+
+					log(msg);
+
+					// HANDLE DUPLICATE MESSAGES
+					if (eventlog.includes(msg.metadata.message_id)) {
+						console.warn('received message an additional time', msg.metadata.message_id, msg);
+						return;
+					} else {
+						if (msg.metadata.message_id) {
+							eventlog.push(msg.metadata.message_id);
+						}
+					}
+
+					// handle ping/pong?
+
+					// KEEP-ALIVE
+					if (msg.metadata.message_type == 'session_keepalive') {
+						updateTimeout();
+					}
+
+					// WELCOME
+					if (msg.metadata.message_type == 'session_welcome') {
+						session_id = msg.payload.session.id;
+						keepAliveFor = msg.payload.session.keepalive_timeout_seconds;
+						
+						console.log('welcome message received', session_id);
+						log('welcome message received ' + session_id);
+
+						// subscribe to notifications
+						if (session_id) subscribe();
+
+						// set keepalive check
+						updateTimeout();
+					}
+
+					// NOTIFICATION
+					if (msg.metadata.message_type == 'notification') {
+						handleNotification(msg);
+						updateTimeout();
+					}
+				}
+			}
+
+			const handleNotification = function (message) {
+				// console.log('notification received', message);
+				log(message);
+
+				const type = message.metadata.subscription_type;
+				const user = message.payload.event.user_name;
+				const messageText = message.payload.event.user_input;
+
+				const outputHeadline = document.createElement('h1');
+				const outputText = document.createElement('p');
+
+				// channel points redeemed
+				if (type == 'channel.channel_points_custom_reward_redemption.add') {
+					const rewardName = message.payload.event.reward.title;
+					const rewardCost = message.payload.event.reward.cost;
+					outputHeadline.textContent = user + ' redeemed ' + rewardName + ' for ' + rewardCost;
+
+					outputText.innerHTML = 'OMG<br />' + messageText;
+				}
+
+				// follow
+				if (type == 'channel.follow') {
+					outputHeadline.textContent = user + ' started following';
+					outputText.innerHTML = 'TY';
+				}
+
+				// sub 1st time
+				if (type == 'channel.subscribe') {
+					outputHeadline.textContent = user + ' subscribed for the first time';
+					outputText.innerHTML = 'OMG TY so much!!';
+				}
+
+				// sub w/ msg
+				if (type == 'channel.subscription.message') {
+					outputHeadline.textContent = user + ' subscribed';
+					outputText.innerHTML = messageText;
+				}
+
+				// sub gift
+				if (type == 'channel.subscription.gift') {
+					const amount = message.payload.event.total;
+					const tier = message.payload.event.tier;
+
+					const outputUser = message.payload.event.is_anonymous ? 'Anonymous' : user;
+					outputHeadline.textContent = outputUser + ' gifted ' + amount + ' subs!';
+					outputText.innerHTML = 'Amaze! Tier ' + tier;
+				}
+
+				// bits cheer
+				if (type == 'channel.cheer') {
+					outputHeadline.textContent = user + ' cheered X Bits!';
+					outputText.innerHTML = 'Thank you!';
+				}
+
+				// add to queue
+				notificationsQueue.push([outputHeadline, outputText]);
+			}
+
+			const updateTimeout = function () {
+				clearTimeout(keepAliveTimeout);
+
+				keepAliveTimeout = setTimeout(function () {
+					// reconnect?
+					console.warn('Keep-Alive Timeout!');
+					close();
+				}, (keepAliveFor+5)*1000); // add 5 seconds grace period
+			}
+
+			const close = function () {
+
+				clearTimeout(keepAliveTimeout);
+
+				// unsubscribe notifications
+				for(const sub of subscriptions) {
+					if (sub.id) {
+						console.log('unsubscribing', sub);
+						unsubscribe(sub.id);
+					}
+				}
+
+				// close websocket connection
+				if (eventsub.close) {
+					eventsub.onclose = function (e) {
+						console.log('websocket closed.');
+					};
+					eventsub.close();
+				}
+
+				console.info('connection closed.');
+			}
+
+			const reconnect = function () {
+				// todo: reset values
+
+				if (eventsub.readyState === 1) {
+					close();
+				}
+
+				console.warn('reconnecting …');
+				setTimeout(init, 3000);
+			}
+
+			const unsubscribe = function (subID) {
+
+				fetch('https://api.twitch.tv/helix/eventsub/subscriptions?' + new URLSearchParams({
+						id: subID
+					}), {
+					method: 'DELETE',
+					headers: new Headers({
+						'Authorization': 'Bearer ' + accessToken,
+						'Client-Id': clientID
+					})
+				}).then(function (response) {
+					if (response.status == 204) {
+						// todo: reset subID in subscriptions array!
+						console.log('subscription ended for', subID);
+					} else {
+						console.error('subscription delete error', response);
+					}
+				});
+			}
+
+			const subscribe = function () {
+
+				const headers = new Headers({
+					'Content-Type': 'application/json',
+					'Authorization': 'Bearer ' + accessToken,
+					'Client-Id': clientID
+				});
+
+				for(const sub of subscriptions) {
+					fetch('https://api.twitch.tv/helix/eventsub/subscriptions', {
+						method: 'POST',
+						headers: headers,
+						body: JSON.stringify(
+							{
+								"type": sub.sub,
+								"version": "1",
+								"condition": {
+									"broadcaster_user_id": sub.channel.toString()
+								},
+								"transport": {
+									"method": "websocket",
+									"session_id": session_id
+								}
+							}
+						)
+					}).then((response) => response.json())
+					.then(function (data) {
+						if (data.error) {
+							console.error('subscription error', data.error, data.message);
+						} else {
+							// console.log('active subscription', sub, data);
+							log(data);
+							setSubID(sub.sub, sub.channel, data.data[0].id);
+						}
+					});
+				}
+			}
+
+			const setSubID = function (subName, subChannel, subID) {
+				if (!subName || !subChannel) return;
+
+				for (let i=0; i < subscriptions.length; i++) {
+					if (subscriptions[i].sub == subName && subscriptions[i].channel.toString() == subChannel.toString()) {
+						subscriptions[i].id = subID;
+					}
+				}
+			}
+
+			if (accessToken) {
+				console.log('found access token', accessToken.substring(0,12) + '…');
+				
+				init();
+				log('init done');
+			}
+
+			window.addEventListener('beforeunload', function (event) {
+				close();
+			});
+
+		</script>
+	</body>
+</html>
