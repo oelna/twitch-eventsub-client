@@ -12,16 +12,22 @@
 				font: 125%/1.25 'KievitOT', system-ui, sans-serif;
 				font-weight: 500;
 				font-style: normal;
-				background-color: lightcoral;
 			}
 
 			html.error {
 				background-color: red;
 			}
 
+			html.debug {
+				background-color: lightcoral;
+			}
+
 			body {
 				margin: 0;
 				min-height: 100vh;
+			}
+
+			.debug body {
 				border: 2px solid #f0f;
 			}
 
@@ -42,7 +48,10 @@
 			.log {
 				margin-block: 0.5rem;
 				border-top: 2px solid currentColor;
+				display: none;
 			}
+
+			.debug .log { display: block; }
 		</style>
 	</head>
 	<body>
@@ -52,6 +61,7 @@
 
 		<script>
 			const log = function (item, level="log") {
+				if (!debug) return;
 
 				const ele = document.createElement('div');
 				ele.classList.add('log');
@@ -73,14 +83,17 @@
 				console[level](item);
 			}
 
-			log(navigator.userAgent);
-
 			/* CONFIG */
 
 			const channel = 'oelna81'; // the channel to read
 			const channelID = 59039718;
 			const ignoreUsers = ['nightbot', 'streamelements', 'oelnabot'];
 			const hideAfter = 6; // hide messages after X seconds
+			const debug = false;
+
+			if (debug) {
+				document.documentElement.classList.add('debug');
+			}
 
 			const subscriptions = [
 				{ sub: 'channel.follow', channel: channelID },
@@ -91,10 +104,8 @@
 				{ sub: 'channel.channel_points_custom_reward_redemption.add', channel: channelID },
 			];
 
-			log(channelID);
-
-			let clientID = ''; // enter a valid client_id from a twitch dev application
-			let redirectURL = 'http://localhost/your_username/project/eventsub.html'; // a URL that is valid in your app settings at twitch
+			let clientID = '';  // enter a valid client_id from a twitch dev application
+			let redirectURL = 'http://localhost/your_username/project_dir/eventsub.html'; // a URL that is valid in your app settings at twitch
 			let accessToken = localStorage.getItem('twitch-oauth-access-token') || '';
 			const scope = [
 				'channel:read:subscriptions',
@@ -141,7 +152,7 @@
 				var parsedParams = new URLSearchParams(window.location.search);
 				if (parsedParams.get('error_description')) {
 					console.error(parsedParams.get('error') + ' - ' + parsedParams.get('error_description'));
-					document.documentElement.classlist.add('error');
+					document.documentElement.classList.add('error');
 				}
 			}
 
@@ -175,8 +186,6 @@
 				}, hideAfter*1000);
 			}, (hideAfter+2)*1000);
 
-			log('init loop');
-
 			/*
 			async function getConfig () {
 				const data = await fetch('./config.json.php');
@@ -201,27 +210,25 @@
 				}
 
 				// CONNECT
-				eventsub = new WebSocket(
-					'wss://eventsub-beta.wss.twitch.tv/ws', 
-					'eventsub'
-				);
+				eventsub = new WebSocket('wss://eventsub-beta.wss.twitch.tv/ws');
 
 				eventsub.onopen = function (event) {
 					
 				};
 
 				eventsub.onerror = function(error) {
-					log('websockets error ' + JSON.stringify(error));
-					log(error.message);
+					
 				};
 
-				log(eventsub.readyState);
+				eventsub.onclose = function (e) {
+					console.log('websocket closed.');
+				};
 
 				eventsub.onmessage = function (event) {
 					// https://dev.twitch.tv/docs/eventsub/websocket-reference
 					const msg = JSON.parse(event.data);
 
-					log(msg);
+					// log(msg);
 
 					// HANDLE DUPLICATE MESSAGES
 					if (eventlog.includes(msg.metadata.message_id)) {
@@ -345,9 +352,6 @@
 
 				// close websocket connection
 				if (eventsub.close) {
-					eventsub.onclose = function (e) {
-						console.log('websocket closed.');
-					};
 					eventsub.close();
 				}
 
@@ -416,7 +420,6 @@
 							console.error('subscription error', data.error, data.message);
 						} else {
 							// console.log('active subscription', sub, data);
-							log(data);
 							setSubID(sub.sub, sub.channel, data.data[0].id);
 						}
 					});
@@ -437,7 +440,6 @@
 				console.log('found access token', accessToken.substring(0,12) + '…');
 				
 				init();
-				log('init done');
 			}
 
 			window.addEventListener('beforeunload', function (event) {
