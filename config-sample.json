@@ -1,0 +1,25 @@
+{
+	"debug": false,
+
+	"clientID": "zz7fxb7bkefpyourclientidcwybk4wzz",
+	"redirectURL": "http://localhost/~yourusername/overlay/",
+	"eventsubURL": "wss://eventsub-beta.wss.twitch.tv/ws",
+
+	"channel": "oelna81",
+	"subscriptions": [
+		{ "sub": "channel.follow" },
+		{ "sub": "channel.subscribe" },
+		{ "sub": "channel.subscription.message" },
+		{ "sub": "channel.subscription.gift" },
+		{ "sub": "channel.cheer" },
+		{ "sub": "channel.channel_points_custom_reward_redemption.add" }
+	],
+	"scope": [
+		"channel:read:subscriptions",
+		"channel:read:redemptions",
+		"bits:read"
+	],
+
+	"ignoreUsers": ["nightbot", "streamelements"],
+	"hideAfter": 6
+}
