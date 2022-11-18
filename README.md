@@ -9,3 +9,5 @@ Rename `config-sample.json` to `config.json` and fill in client_id, channel name
 The app will let you auth with Twitch and start receiving EventSub notifications!
 
 Some config is possible, CSS is contained in `index.html`.
+
+(Better rounded corners via https://github.com/PavelLaptev/squircle-houdini-css)
